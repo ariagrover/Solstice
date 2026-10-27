@@ -159,6 +159,15 @@
     <p class="hint">Live follows the clock. Or lock the sky to any time of day.</p>
   </section>
   <section>
+    <h2>Sound</h2>
+    <div class="chips" id="soundChips" role="group" aria-label="Alert sound">
+      <button type="button" data-v="1" aria-pressed="true">On</button>
+      <button type="button" data-v="0" aria-pressed="false">Off</button>
+      <button type="button" id="soundTest">Play test</button>
+    </div>
+    <p class="hint">A chime plays when a reminder or the timer goes off. Browsers only allow sound after you’ve clicked or typed on the page once.</p>
+  </section>
+  <section>
     <h2>Reminders</h2>
     <input type="text" id="rText" maxlength="80" placeholder="Remind me to…" aria-label="Reminder text">
     <div class="row">
@@ -292,6 +301,44 @@
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") togglePanel(false); });
   document.addEventListener("click", function (e) { if (!panel.contains(e.target) && !gear.contains(e.target)) togglePanel(false); });
 
+  /* ---------- alert sound ---------- */
+  var soundOn = store.get("sol-sound") !== "0";
+  var ac = null;
+  function unlock() {
+    try {
+      if (!ac) { var C = window.AudioContext || window.webkitAudioContext; if (C) ac = new C(); }
+      if (ac && ac.state === "suspended") ac.resume();
+    } catch (e) {}
+  }
+  ["pointerdown", "keydown", "touchstart"].forEach(function (ev) { document.addEventListener(ev, unlock, { passive: true }); });
+  function note(freq, at, len) {
+    [[freq, "sine", 0.7], [freq * 2, "triangle", 0.18]].forEach(function (v) {
+      var osc = ac.createOscillator(), g = ac.createGain();
+      osc.type = v[1]; osc.frequency.value = v[0];
+      g.gain.setValueAtTime(0.0001, at);
+      g.gain.exponentialRampToValueAtTime(v[2], at + 0.006);
+      g.gain.exponentialRampToValueAtTime(0.0001, at + len);
+      osc.connect(g); g.connect(ac.destination);
+      osc.start(at); osc.stop(at + len + 0.05);
+    });
+  }
+  function ping(force) {
+    if (!soundOn && !force) return;
+    unlock(); if (!ac) return;
+    try {
+      var t = ac.currentTime + 0.03;
+      note(988, t, 0.9); note(1319, t + 0.17, 1.1);
+      note(988, t + 1.2, 0.9); note(1319, t + 1.37, 1.1);
+    } catch (e) {}
+  }
+  var soundBtns = document.querySelectorAll("#soundChips button[data-v]");
+  function markSound() { soundBtns.forEach(function (b) { b.setAttribute("aria-pressed", (b.dataset.v === "1") === soundOn ? "true" : "false"); }); }
+  soundBtns.forEach(function (b) {
+    b.addEventListener("click", function () { soundOn = b.dataset.v === "1"; store.set("sol-sound", soundOn ? "1" : "0"); markSound(); });
+  });
+  $("soundTest").addEventListener("click", function () { ping(true); });
+  markSound();
+
   /* ---------- reminders ---------- */
   var reminders = [];
   try { reminders = JSON.parse(store.get("sol-reminders") || "[]") || []; } catch (e) { reminders = []; }
@@ -318,6 +365,7 @@
     });
   }
   function toast(text, label) {
+    ping();
     var t = document.createElement("div"); t.className = "toast";
     var s = document.createElement("span"), b = document.createElement("b"); b.textContent = label || "Reminder";
     s.appendChild(b); s.appendChild(document.createTextNode(text));
